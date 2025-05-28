@@ -107,13 +107,17 @@ class ArduinoGUI:
         while True:
             try:
                 line = self.serial_conn.readline().decode().strip()
-                if line:
-                    parts = line.split(",")
-                    if len(parts) == 4:
-                        for i, val in enumerate(parts):
-                            self.labels[i].config(text=val)
-                            self.time_series[i].append(int(val))
-                        self.timestep += 1
+                if not line: continue
+                
+                parts = line.split(",")
+                if not len(parts) == 4: 
+                    print("serial reading not giving 4 values")
+                    continue 
+                
+                for i, value in enumerate(parts):
+                    self.labels[i].config(text=value)
+                    self.time_series[i].append(float(value))
+                self.timestep += 1
             except:
                 pass
 
