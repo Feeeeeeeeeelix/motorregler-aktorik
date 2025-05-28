@@ -21,27 +21,19 @@ class ArduinoGUI:
         control_frame = ttk.LabelFrame(root, text="Ausgangssteuerung", padding=10)
         control_frame.grid(row=0, column=1, padx=10, pady=10, sticky="nsew")
 
-        # PWM1
-        ttk.Label(control_frame, text="PWM1 [V]:").grid(row=0, column=0, sticky="w")
-        self.pwm1 = tk.DoubleVar()
-        self.pwm1_scale = ttk.Scale(control_frame, from_=0.0, to=5.0, variable=self.pwm1,
-                                    orient="horizontal", command=self.send_pwm1)
-        self.pwm1_scale.grid(row=0, column=1, padx=5)
-        self.pwm1_label = ttk.Label(control_frame, text="0.00 V")
-        self.pwm1_label.grid(row=1, column=1, sticky="w")
+        # PWM
+        ttk.Label(control_frame, text="PWM [V]:").grid(row=0, column=0, sticky="w")
+        self.pwm = tk.DoubleVar()
+        self.pwm_scale = ttk.Scale(control_frame, from_=-30.0, to=30.0, variable=self.pwm,
+                                    orient="horizontal", command=self.send_pwm, length=400)
+        self.pwm_scale.grid(row=0, column=1, padx=5)
+        self.pwm_label = ttk.Label(control_frame, text="0.00 V")
+        self.pwm_label.grid(row=1, column=1, sticky="w")
 
-        # PWM2
-        ttk.Label(control_frame, text="PWM2 [V]:").grid(row=2, column=0, sticky="w", pady=(10, 0))
-        self.pwm2 = tk.DoubleVar()
-        self.pwm2_scale = ttk.Scale(control_frame, from_=0.0, to=5.0, variable=self.pwm2,
-                                    orient="horizontal", command=self.send_pwm2)
-        self.pwm2_scale.grid(row=2, column=1, padx=5)
-        self.pwm2_label = ttk.Label(control_frame, text="0.00 V")
-        self.pwm2_label.grid(row=3, column=1, sticky="w")
         
         # Disable Button
-        self.disable_state = False
-        self.disable_button = ttk.Button(control_frame, text="Disable: OFF", command=self.toggle_disable)
+        self.disable_state = True
+        self.disable_button = ttk.Button(control_frame, text="Disable: ON", command=self.toggle_disable)
         self.disable_button.grid(row=4, column=0, columnspan=2, pady=(15, 0))
 
         
@@ -99,17 +91,11 @@ class ArduinoGUI:
         self.read_thread = threading.Thread(target=self.read_serial, daemon=True)
         self.read_thread.start()
 
-    def send_pwm1(self, val):
-        voltage = float(val)
-        pwm_val = int((voltage / 5.0) * 255)
-        self.pwm1_label.config(text=f"{voltage:.2f} V")
-        self.serial_conn.write(f"PWM1:{pwm_val}\n".encode())
+    def send_pwm(self, val):
+        pwm = float(val) /30
+        self.pwm_label.config(text=f"{30*pwm:.2f} V")
+        self.serial_conn.write(f"U:{pwm:.5f}\n".encode())
 
-    def send_pwm2(self, val):
-        voltage = float(val)
-        pwm_val = int((voltage / 5.0) * 255)
-        self.pwm2_label.config(text=f"{voltage:.2f} V")
-        self.serial_conn.write(f"PWM2:{pwm_val}\n".encode())
 
     def toggle_disable(self):
         self.disable_state = not self.disable_state
