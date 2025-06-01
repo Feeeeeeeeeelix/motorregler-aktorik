@@ -7,7 +7,7 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import collections
 
 # Serieller Port deines Arduinos (ggf. anpassen!)
-SERIAL_PORT = '/dev/cu.usbmodem11401'
+SERIAL_PORT = '/dev/cu.usbmodem1401'
 BAUD_RATE = 9600
 
 class ArduinoGUI:
@@ -22,13 +22,22 @@ class ArduinoGUI:
         control_frame.grid(row=0, column=1, padx=10, pady=10, sticky="nsew")
 
         # PWM
-        ttk.Label(control_frame, text="PWM [V]:").grid(row=0, column=0, sticky="w")
+        ttk.Label(control_frame, text="Spannung/V:").grid(row=0, column=0, sticky="w")
         self.pwm = tk.DoubleVar()
         self.pwm_scale = ttk.Scale(control_frame, from_=-30.0, to=30.0, variable=self.pwm,
                                     orient="horizontal", command=self.send_pwm, length=400)
         self.pwm_scale.grid(row=0, column=1, padx=5)
         self.pwm_label = ttk.Label(control_frame, text="0.00 V")
         self.pwm_label.grid(row=1, column=1, sticky="w")
+        
+        # Drehzahlregelung
+        ttk.Label(control_frame, text="Drehzahl/rpm:").grid(row=2, column=0, sticky="w")
+        self.drehzahl = tk.IntVar()
+        self.drehzahl_scale = ttk.Scale(control_frame, from_=0, to=1000, variable=self.drehzahl,
+                                    orient="horizontal", command=self.send_drehzahl, length=400)
+        self.drehzahl_scale.grid(row=2, column=1, padx=5)
+        self.drehzahl_label = ttk.Label(control_frame, text="0.00 rpm")
+        self.drehzahl_label.grid(row=3, column=1, sticky="w")
 
         
         # Disable Button
@@ -95,6 +104,11 @@ class ArduinoGUI:
         pwm = float(val) /30
         self.pwm_label.config(text=f"{30*pwm:.2f} V")
         self.serial_conn.write(f"U:{pwm:.5f}\n".encode())
+        
+    def send_drehzahl(self, val):
+        drehzahl = int(float(val))
+        self.drehzahl_label.config(text=f"{drehzahl} rpm")
+        self.serial_conn.write(f"N:{drehzahl}\n".encode())
 
 
     def toggle_disable(self):

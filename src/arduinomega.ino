@@ -10,12 +10,22 @@ const int pwm1Pin = 11;           // PWM-Ausgang A-Side (OC1A)
 const int pwm2Pin = 12;           // PWM-Ausgang B-Side (OC1B)
 const int disablePin = 7;
 
-volatile unsigned long pulseCount = 0;
-int abtastrate = 500; // ms
+long drehzahl_rpm;
 
-void countPulse() {
-  pulseCount++;
-}
+volatile unsigned long pulseCount = 0;
+float abtastPeriode = 0.500; // s
+
+bool MotorMode = 0;   // 1: geregelt, 0: manuell über Spannung
+int sollDrehzahl = 0;
+
+float ReglerKp = 0;
+float ReglerKi = 0;
+
+float dN = 0;
+float dNsum = 0;
+
+
+
 
 void setup_PWM(){
   pinMode(pwm1Pin, OUTPUT);
@@ -32,7 +42,7 @@ void setup_PWM(){
   TCCR1B = _BV(WGM13) | _BV(WGM12) | _BV(CS10);
 } 
 
-void driveMotor(double U){
+void setMotorVoltage(double U){
   // U zwischen -1 (=-30V) und +1 (30V). Dazwischen PWM
 
   if (U>1 or U<-1){
@@ -44,7 +54,7 @@ void driveMotor(double U){
     OCR1A = (int) (U * 800.0);
     OCR1B = 0;
 
-  } else if (U > 0){
+  } else if (U < 0){
     // MOSFETs: LowB = PWM, LowA=0 => HighA=1   
     OCR1A = 0;
     OCR1B = (int) (-U * 800.0);
@@ -54,6 +64,23 @@ void driveMotor(double U){
   }
 }
 
+void controlMotorSpeed(){
+  // U = (Nsoll-Nist)(Kp+Ki/s)+cw*Nist aber cw unbekannt, regelt er das vllt selber aus?
+  double dN = sollDrehzahl-drehzahl_rpm;
+  dNsum += dN * abtastPeriode;
+
+  double U = dN*ReglerKp + dNsum*ReglerKi;
+  setMotorVoltage(U);
+
+  if (U > 1.0 || U < -1.0){
+    dNsum -= dN * abtastPeriode;
+  }
+  
+}
+
+void countPulse() {
+  pulseCount++;
+}
 
 void setup() {
   Serial.begin(9600);
@@ -73,8 +100,8 @@ void setup() {
 void loop() {
 
   pulseCount = 0;
-  delay(abtastrate);
-  unsigned long drehzahl_rpm = (pulseCount * 60UL) / (720 * abtastrate);
+  delay(abtastPeriode);
+  drehzahl_rpm = (pulseCount * 60UL) / (720UL * abtastPeriode);
 
 
   float drehmoment = analogRead(drehmomentPin) * (5.0 / 1023.0);
@@ -90,13 +117,36 @@ void loop() {
   Serial.print(",");
   Serial.println(strom, 2);
 
+  if (MotorMode == 1){
+    controlMotorSpeed();
+  }
+
+  
 
   while (Serial.available()) {
     String input = Serial.readStringUntil('\n');
     
     if (input.startsWith("U:")) {
+      MotorMode = 0;
       double motor_U = input.substring(2).toDouble();
-      driveMotor(motor_U);
+      setMotorVoltage(motor_U);
+
+    }  else if (input.startsWith("N:")) {
+      MotorMode = 1;
+      int motor_N = input.substring(2).toInt();
+      sollDrehzahl = motor_N;
+
+    }  else if (input.startsWith("Kp:")) {
+      double Kp = input.substring(3).toDouble();
+      if (Kp > 0 && Kp < 10){
+        ReglerKp = Kp;
+      }
+
+    }  else if (input.startsWith("Ki:")) {
+      double Ki = input.substring(3).toDouble();
+      if (Ki > 0 && Ki < 10){
+        ReglerKi = Ki;
+      }
 
     } else if (input.startsWith("DISABLE:")) {
       int state = input.substring(8).toInt();
