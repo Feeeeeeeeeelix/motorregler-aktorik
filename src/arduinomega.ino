@@ -10,13 +10,18 @@ const int pwm1Pin = 11;           // PWM-Ausgang A-Side (OC1A)
 const int pwm2Pin = 12;           // PWM-Ausgang B-Side (OC1B)
 const int disablePin = 7;
 
-long drehzahl_rpm;
+long DrehZahlIstRPM;
+float DrehmomentIst;
+float ZwischenkreisSpannungIst;
+float AnkerStromIst;
 
 volatile unsigned long pulseCount = 0;
-float abtastPeriode = 0.500; // s
+int abtastPeriode = 500; // ms
 
+float MotorSpannungSollV;
 bool MotorMode = 0;   // 1: geregelt, 0: manuell über Spannung
-int sollDrehzahl = 0;
+int DrehZahlSollRPM = 0;
+float PWM;
 
 float ReglerKp = 0;
 float ReglerKi = 0;
@@ -24,7 +29,7 @@ float ReglerKi = 0;
 float dN = 0;
 float dNsum = 0;
 
-
+float u;
 
 
 void setup_PWM(){
@@ -42,22 +47,27 @@ void setup_PWM(){
   TCCR1B = _BV(WGM13) | _BV(WGM12) | _BV(CS10);
 } 
 
-void setMotorVoltage(double U){
-  // U zwischen -1 (=-30V) und +1 (30V). Dazwischen PWM
+void setMotorVoltage(float sollSpannung){
+  // U zwischen -30V und +30V. Dazwischen PWM
 
-  if (U>1 or U<-1){
-    U = max(min(U, 1), -1);
+  // PWM aus Sollmotorspannung und istZwischenkreisfrequenz mit PWM begrenzung auf 90% wegen dem Bootstrap vorm Gatetreiber
+  float MaxPWM = 0.9;
+  MotorSpannungSollV = sollSpannung;
+  PWM = abs(MotorSpannungSollV)/ZwischenkreisSpannungIst;
+
+  if (PWM > MaxPWM || PWM < -MaxPWM){
+    PWM = max(min(PWM, MaxPWM), -MaxPWM);
   }
   
-  if (U > 0){
+  if (PWM > 0){
     // MOSFETs: LowA = PWM, LowB=0 => HighB=1   
-    OCR1A = (int) (U * 800.0);
+    OCR1A = (int) (PWM * 800.0);
     OCR1B = 0;
 
-  } else if (U < 0){
+  } else if (PWM < 0){
     // MOSFETs: LowB = PWM, LowA=0 => HighA=1   
     OCR1A = 0;
-    OCR1B = (int) (-U * 800.0);
+    OCR1B = (int) (-PWM * 800.0);
   } else {
     OCR1A = 0;
     OCR1B = 0;
@@ -65,15 +75,16 @@ void setMotorVoltage(double U){
 }
 
 void controlMotorSpeed(){
+  // TODO: Regelung mit ist-Strom implememtieren
   // U = (Nsoll-Nist)(Kp+Ki/s)+cw*Nist aber cw unbekannt, regelt er das vllt selber aus?
-  double dN = sollDrehzahl-drehzahl_rpm;
-  dNsum += dN * abtastPeriode;
+  double dN = DrehZahlSollRPM-DrehZahlIstRPM;
+  dNsum += dN * abtastPeriode/1000.0;
 
   double U = dN*ReglerKp + dNsum*ReglerKi;
-  setMotorVoltage(U);
+  setMotorVoltage(min(max(U, 30.0), -30.0));
 
-  if (U > 1.0 || U < -1.0){
-    dNsum -= dN * abtastPeriode;
+  if (U > 30.0 || U < -30.0){
+    dNsum -= dN * abtastPeriode/1000.0;
   }
   
 }
@@ -83,7 +94,7 @@ void countPulse() {
 }
 
 void setup() {
-  Serial.begin(9600);
+  Serial.begin(115200);
 
   pinMode(drehzahlPin, INPUT);
   pinMode(drehmomentPin, INPUT);
@@ -101,21 +112,36 @@ void loop() {
 
   pulseCount = 0;
   delay(abtastPeriode);
-  drehzahl_rpm = (pulseCount * 60UL) / (720UL * abtastPeriode);
 
+  DrehZahlIstRPM = (pulseCount * 60UL*1000) / (720UL * abtastPeriode);
 
-  float drehmoment = analogRead(drehmomentPin) * (5.0 / 1023.0);
-  float spannung = analogRead(spannungPin) * (5.0 / 1023.0);
+  // Sensor: 5V entspricht 1Nm
+  DrehmomentIst = analogRead(drehmomentPin) * 5.0/1023.0 * 1.0/5.0;
+
+  //Spannungsteiler mit 27k und 5k: 30V werden zu 4,6V
+  ZwischenkreisSpannungIst = analogRead(spannungPin) * 5.0/1023.0 * 32.0/5.0; 
+
+  float shunt_widerstand = 0.020;
+  float verstaerkung = 20.0;
   float strom = analogRead(stromPin) * (5.0 / 1023.0);
+  AnkerStromIst = (strom-2.5)/verstaerkung/shunt_widerstand;
 
-  // Daten senden: "drehzahl_rpm,drehmoment,spannung,strom"
-  Serial.print(drehzahl_rpm);
+  // Daten senden: "DrehZahlIstRPM, DrehZahlSollRPM, DrehmomentIst,ZwischenkreisSpannungIst, MotorspannungSoll, PWM, AnkerStromIst"
+  Serial.print("<");
+  Serial.print(DrehZahlIstRPM);
   Serial.print(",");
-  Serial.print(drehmoment, 2);
+  Serial.print(DrehZahlSollRPM);
   Serial.print(",");
-  Serial.print(spannung, 2);
+  Serial.print(DrehmomentIst, 2);
   Serial.print(",");
-  Serial.println(strom, 2);
+  Serial.print(ZwischenkreisSpannungIst, 2);
+  Serial.print(",");
+  Serial.print(MotorSpannungSollV, 2);
+  Serial.print(",");
+  Serial.print(PWM, 2);
+  Serial.print(",");
+  Serial.print(AnkerStromIst, 2);
+  Serial.println(">");
 
   if (MotorMode == 1){
     controlMotorSpeed();
@@ -134,7 +160,7 @@ void loop() {
     }  else if (input.startsWith("N:")) {
       MotorMode = 1;
       int motor_N = input.substring(2).toInt();
-      sollDrehzahl = motor_N;
+      DrehZahlSollRPM = motor_N;
 
     }  else if (input.startsWith("Kp:")) {
       double Kp = input.substring(3).toDouble();

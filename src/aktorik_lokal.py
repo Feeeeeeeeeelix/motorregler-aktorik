@@ -7,10 +7,14 @@ from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import collections
 
 # Serieller Port deines Arduinos (ggf. anpassen!)
-SERIAL_PORT = '/dev/cu.usbmodem1401'
-BAUD_RATE = 9600
+SERIAL_PORT = '/dev/cu.usbmodem11201'
+BAUD_RATE = 115200
 
 class ArduinoGUI:
+    MESSWERTE = ["Ist-Drehzahl", "Soll-Drehzahl", "Drehmoment", "Zwischenkreisspannung", "Soll-Motorspannung", "PWM", "Ankerstrom"]
+    DIAGRAMME = ["Drehzahl", "Drehmoment", "Spannung", "Strom"]
+    
+    
     def __init__(self, root):
         self.root = root
         root.title("Arduino Steuerung & Anzeige")
@@ -26,16 +30,16 @@ class ArduinoGUI:
         self.pwm = tk.DoubleVar()
         self.pwm_scale = ttk.Scale(control_frame, from_=-30.0, to=30.0, variable=self.pwm,
                                     orient="horizontal", command=self.send_pwm, length=400)
-        self.pwm_scale.grid(row=0, column=1, padx=5)
-        self.pwm_label = ttk.Label(control_frame, text="0.00 V")
-        self.pwm_label.grid(row=1, column=1, sticky="w")
+        self.pwm_scale.grid(row=0, column=1, columnspan=3, padx=5)
+        self.spannung_label = ttk.Label(control_frame, text="0.00 V")
+        self.spannung_label.grid(row=1, column=1, sticky="w")
         
         # Drehzahlregelung
         ttk.Label(control_frame, text="Drehzahl/rpm:").grid(row=2, column=0, sticky="w")
         self.drehzahl = tk.IntVar()
         self.drehzahl_scale = ttk.Scale(control_frame, from_=0, to=1000, variable=self.drehzahl,
                                     orient="horizontal", command=self.send_drehzahl, length=400)
-        self.drehzahl_scale.grid(row=2, column=1, padx=5)
+        self.drehzahl_scale.grid(row=2, column=1, columnspan=3, padx=5)
         self.drehzahl_label = ttk.Label(control_frame, text="0.00 rpm")
         self.drehzahl_label.grid(row=3, column=1, sticky="w")
 
@@ -43,16 +47,28 @@ class ArduinoGUI:
         # Disable Button
         self.disable_state = True
         self.disable_button = ttk.Button(control_frame, text="Disable: ON", command=self.toggle_disable)
-        self.disable_button.grid(row=4, column=0, columnspan=2, pady=(15, 0))
+        self.disable_button.grid(row=4, column=0, columnspan=1, pady=(15, 0))
 
+        # Kp Eingabe
+        tk.Label(control_frame, text="Kp:").grid(row=4, column=1)
+        self.entry_kp = tk.Entry(control_frame)
+        self.entry_kp.grid(row=4, column=2)
+        btn_kp = tk.Button(control_frame, text="Senden", command=self.send_Kp)
+        btn_kp.grid(row=4, column=3)
+        
+        # Ki Eingabe
+        tk.Label(control_frame, text="Ki:").grid(row=5, column=1, padx=10, pady=5)
+        self.entry_ki = tk.Entry(control_frame)
+        self.entry_ki.grid(row=5, column=2, padx=10, pady=5)
+        btn_ki = tk.Button(control_frame, text="Senden", command=self.send_Ki)
+        btn_ki.grid(row=5, column=3, padx=10, pady=5)
         
         # Sensorwerte-Rahmen
         sensor_frame = ttk.LabelFrame(root, text="Sensorwerte", padding=10)
         sensor_frame.grid(row=0, column=0, padx=10, pady=10, sticky="nsew")
 
-        self.grössen = ["Drehzahl", "Drehmoment", "Spannung", "Strom"]
         self.labels = {}
-        for i, name in enumerate(self.grössen):
+        for i, name in enumerate(self.MESSWERTE):
             ttk.Label(sensor_frame, text=name + ":").grid(row=i, column=0, sticky="w", pady=5)
             self.labels[i] = ttk.Label(sensor_frame, text="---")
             self.labels[i].grid(row=i, column=1, sticky="w", pady=5)
@@ -76,20 +92,33 @@ class ArduinoGUI:
         self.canvas = FigureCanvasTkAgg(self.fig, master=plot_frame)
         self.canvas.get_tk_widget().pack(fill="both", expand=False)
 
-        self.value_series = [collections.deque(maxlen=100) for _ in range(4)]
+        self.value_series = [collections.deque(maxlen=100) for _ in range(7)]
         self.timestep = 0
         self.lines = []
-        colors = ["tab:blue", "tab:orange", "tab:green", "tab:red"]
+        
+        colors = ["tab:blue", "tab:orange", "tab:green", "tab:red", "tab:purple", "tab:brown"]
+
+        # Anzahl der Linien pro Plot, z.B. [2, 1, 3, 1]
+        lines_per_plot = [2, 1, 3, 1]
+        series_counter = 0
         for i, ax in enumerate(self.axes.flatten()):
             ax.set_xlim(0, 100)
             y_limit = [(0,1000), (0,1), (-1,32), (-6,6)][i]
             ax.set_ylim(*y_limit)
-            ax.set_title(self.grössen[i])
+            ax.set_title(self.DIAGRAMME[i])
             ax.set_xlabel("Zeit (t)")
             y_label = ["n/rpm", "M/Nm", "U/V", "I/A"][i]
             ax.set_ylabel(y_label)
             line, = ax.plot([], [], color=colors[i])
-            self.lines.append(line)
+            
+            # self.lines.append(line)
+            # Mehrere Linien pro Diagramm
+            subplot_lines = []
+            for j in range(lines_per_plot[i]):
+                line, = ax.plot([], [], color=colors[series_counter % len(colors)], label=self.MESSWERTE[series_counter])
+                subplot_lines.append(line)
+                series_counter += 1
+            self.lines.append(subplot_lines)
 
 
 
@@ -101,14 +130,25 @@ class ArduinoGUI:
         self.read_thread.start()
 
     def send_pwm(self, val):
-        pwm = float(val) /30
-        self.pwm_label.config(text=f"{30*pwm:.2f} V")
-        self.serial_conn.write(f"U:{pwm:.5f}\n".encode())
+        spannung = float(val)
+        self.spannung_label.config(text=f"{spannung:.2f} V")
+        self.serial_conn.write(f"U:{spannung:.5f}\n".encode())
+        print(f"sendingU; {spannung:.2f}")
         
     def send_drehzahl(self, val):
         drehzahl = int(float(val))
         self.drehzahl_label.config(text=f"{drehzahl} rpm")
         self.serial_conn.write(f"N:{drehzahl}\n".encode())
+        print(f"sendingN:{drehzahl}")
+        
+    def send_Kp(self):
+        kp = float(self.entry_kp.get())
+        self.serial_conn.write(f"Kp:{kp:.4f}\n".encode())
+        print(f"sendingKp:{kp}")
+    def send_Ki(self):
+        ki = float(self.entry_ki.get())
+        self.serial_conn.write(f"Ki:{ki:.4f}\n".encode())
+        print(f"sendingKi:{ki}")
 
 
     def toggle_disable(self):
@@ -124,52 +164,54 @@ class ArduinoGUI:
                 if not line: 
                     print("serial gives nothing")
                     continue
+                if len(line) < 2 or line[0] != "<" or line[-1] != ">":
+                    print(f"bad arduino signals: {repr(line)=}")
+                    continue
                 
-                parts = line.split(",")
-                if not len(parts) == 4: 
-                    print("serial reading not giving 4 values")
+                parts = line[1:-1].split(",")
+                if not len(parts) == 7: 
+                    print("serial reading not giving 7 values")
                     continue 
-                
-                real_values = [parts[0], self.umrechnung_drehmoment(parts[1]), self.umrechnung_spannung(parts[2]), self.umrechnung_strom(parts[3])]
+                print(f"line: {repr(line)}")
+                drehzahlIst, drehzahlSoll, drehmomentIst, ZWKspannungIst, MotorspannungSoll, PWM, Ankerstrom = parts
 
-
-                self.labels[0].config(text=parts[0])
-                self.value_series[0].append(float(parts[0]))
+                self.labels[0].config(text=drehzahlIst)
+                self.value_series[0].append(float(drehzahlIst))
+                self.labels[1].config(text=drehzahlSoll)
+                self.value_series[1].append(float(drehzahlSoll))
                 
-                self.labels[1].config(text=f"{parts[1]} ({real_values[1]:.03f} Nm)")
-                self.value_series[1].append(float(real_values[1]))
+                self.labels[2].config(text=f"{drehmomentIst} Nm")
+                self.value_series[2].append(float(drehmomentIst))
                 
-                self.labels[2].config(text=f"{parts[2]} ({real_values[2]:.03f} V)")
-                self.value_series[2].append(float(real_values[2]))
+                self.labels[3].config(text=f"{ZWKspannungIst} V")
+                self.value_series[3].append(float(ZWKspannungIst))
                 
-                self.labels[3].config(text=f"{parts[3]} ({real_values[3]:.03f} A)")
-                self.value_series[3].append(float(real_values[3]))
+                self.labels[4].config(text=f"{MotorspannungSoll} V")
+                self.value_series[4].append(float(MotorspannungSoll))
+                self.labels[5].config(text=f"{PWM} %")
+                self.value_series[5].append(float(PWM))
+                
+                self.labels[6].config(text=f"{Ankerstrom} A")
+                self.value_series[6].append(float(Ankerstrom))
+                
 
             except Exception as e :
                 raise e
 
     def update_plot(self):
-        for queue, axis, line in zip(self.value_series, self.axes.flatten(), self.lines):
-            line.set_data(range(len(queue)), list(queue))
+        series_index = 0
+        for i, subplot_lines in enumerate(self.lines):
+            for j, line in enumerate(subplot_lines):
+                values = list(self.value_series[series_index])
+                line.set_data(range(len(values)), values)
+                series_index += 1
+        for axis in self.axes.flatten():
             axis.relim()
             axis.autoscale_view(scaley=True)
         self.canvas.draw()
         self.root.after(200, self.update_plot)
+            
     
-    def umrechnung_drehmoment(self, M_scaled):
-        """Sensor: 5V entspricht 1Nm"""
-        return float(M_scaled)/5
-    
-    def umrechnung_spannung(self, V_scaled):
-        """Spannungsteiler mit 27k und 5k: 30V werden zu 4,6V"""
-        return 5/32*float(V_scaled)
-    
-    def umrechnung_strom(self, I_sym):
-        """Spannung über shuntwiderstand wird um Faktor 20 verstärkt und symmetrisch um 2,5V ausgegeben"""
-        shunt_widerstand = 20e-3
-        verstärkung = 20
-        return (float(I_sym)-2.5)/verstärkung/shunt_widerstand
-
 if __name__ == "__main__":
     root = tk.Tk()
     gui = ArduinoGUI(root)
