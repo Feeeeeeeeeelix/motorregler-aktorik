@@ -5,10 +5,25 @@ import threading
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 import collections
+import logging
+from datetime import datetime
+import os
 
-# Serieller Port deines Arduinos (ggf. anpassen!)
-SERIAL_PORT = '/dev/cu.usbmodem11201'
+SERIAL_PORT = '/dev/cu.usbmodem11401'
 BAUD_RATE = 115200
+
+
+log_dir = "logs"
+os.makedirs(log_dir, exist_ok=True)
+timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+log_filename = os.path.join(log_dir, f"log_{timestamp}.log")
+logging.basicConfig(
+    filename=log_filename,
+    level=logging.INFO,
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S"
+)
+
 
 class ArduinoGUI:
     MESSWERTE = ["Ist-Drehzahl", "Soll-Drehzahl", "Drehmoment", "Zwischenkreisspannung", "Soll-Motorspannung", "PWM", "Ankerstrom"]
@@ -16,12 +31,12 @@ class ArduinoGUI:
     
     
     def __init__(self, root):
+        logging.info("Starting")
         self.root = root
         root.title("Arduino Steuerung & Anzeige")
 
         self.serial_conn = serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=1) 
         
-        # Steuerungs-Rahmen
         control_frame = ttk.LabelFrame(root, text="Ausgangssteuerung", padding=10)
         control_frame.grid(row=0, column=1, padx=10, pady=10, sticky="nsew")
 
@@ -29,17 +44,22 @@ class ArduinoGUI:
         ttk.Label(control_frame, text="Spannung/V:").grid(row=0, column=0, sticky="w")
         self.pwm = tk.DoubleVar()
         self.pwm_scale = ttk.Scale(control_frame, from_=-30.0, to=30.0, variable=self.pwm,
-                                    orient="horizontal", command=self.send_pwm, length=400)
-        self.pwm_scale.grid(row=0, column=1, columnspan=3, padx=5)
+                                    orient="horizontal", command=self.send_pwm, length=500)
+        self.pwm_scale.grid(row=0, column=1, columnspan=5)
         self.spannung_label = ttk.Label(control_frame, text="0.00 V")
-        self.spannung_label.grid(row=1, column=1, sticky="w")
+        self.spannung_label.grid(row=1, column=0, sticky="w")
+        ttk.Button(control_frame, text="-30V",  command=lambda :self.pwm_scale.set(-30.0)).grid(row=1, column=1)
+        ttk.Button(control_frame, text="-15V",  command=lambda :self.pwm_scale.set(-15.0)).grid(row=1, column=2)
+        ttk.Button(control_frame, text="0V",    command=lambda :self.pwm_scale.set(0.0)).grid(row=1, column=3)
+        ttk.Button(control_frame, text="15V",   command=lambda :self.pwm_scale.set(15.0)).grid(row=1, column=4)
+        ttk.Button(control_frame, text="30V",   command=lambda :self.pwm_scale.set(30.0)).grid(row=1, column=5)
         
         # Drehzahlregelung
         ttk.Label(control_frame, text="Drehzahl/rpm:").grid(row=2, column=0, sticky="w")
         self.drehzahl = tk.IntVar()
         self.drehzahl_scale = ttk.Scale(control_frame, from_=0, to=1000, variable=self.drehzahl,
-                                    orient="horizontal", command=self.send_drehzahl, length=400)
-        self.drehzahl_scale.grid(row=2, column=1, columnspan=3, padx=5)
+                                    orient="horizontal", command=self.send_drehzahl, length=500)
+        self.drehzahl_scale.grid(row=2, column=1, columnspan=5)
         self.drehzahl_label = ttk.Label(control_frame, text="0.00 rpm")
         self.drehzahl_label.grid(row=3, column=1, sticky="w")
 
@@ -51,14 +71,14 @@ class ArduinoGUI:
 
         # Kp Eingabe
         tk.Label(control_frame, text="Kp:").grid(row=4, column=1)
-        self.entry_kp = tk.Entry(control_frame)
+        self.entry_kp = tk.Entry(control_frame, width=8)
         self.entry_kp.grid(row=4, column=2)
         btn_kp = tk.Button(control_frame, text="Senden", command=self.send_Kp)
         btn_kp.grid(row=4, column=3)
         
         # Ki Eingabe
         tk.Label(control_frame, text="Ki:").grid(row=5, column=1, padx=10, pady=5)
-        self.entry_ki = tk.Entry(control_frame)
+        self.entry_ki = tk.Entry(control_frame, width=8)
         self.entry_ki.grid(row=5, column=2, padx=10, pady=5)
         btn_ki = tk.Button(control_frame, text="Senden", command=self.send_Ki)
         btn_ki.grid(row=5, column=3, padx=10, pady=5)
@@ -83,12 +103,10 @@ class ArduinoGUI:
             'legend.fontsize': 6,
         })
         
-        # Rahmen für Plot
         plot_frame = ttk.LabelFrame(root, text="Messkurven", padding=10)
         plot_frame.grid(row=1, column=0, columnspan=2, padx=10, pady=10, sticky="nsew")
 
         self.fig, self.axes = plt.subplots(2, 2, figsize=(4,3), constrained_layout=True)
-        # self.fig.tight_layout()
         self.canvas = FigureCanvasTkAgg(self.fig, master=plot_frame)
         self.canvas.get_tk_widget().pack(fill="both", expand=False)
 
@@ -98,7 +116,6 @@ class ArduinoGUI:
         
         colors = ["tab:blue", "tab:orange", "tab:green", "tab:red", "tab:purple", "tab:brown"]
 
-        # Anzahl der Linien pro Plot, z.B. [2, 1, 3, 1]
         lines_per_plot = [2, 1, 3, 1]
         series_counter = 0
         for i, ax in enumerate(self.axes.flatten()):
@@ -111,8 +128,6 @@ class ArduinoGUI:
             ax.set_ylabel(y_label)
             line, = ax.plot([], [], color=colors[i])
             
-            # self.lines.append(line)
-            # Mehrere Linien pro Diagramm
             subplot_lines = []
             for j in range(lines_per_plot[i]):
                 line, = ax.plot([], [], color=colors[series_counter % len(colors)], label=self.MESSWERTE[series_counter])
@@ -122,10 +137,8 @@ class ArduinoGUI:
 
 
 
-        # Starte das regelmäßige Plot-Update
         self.update_plot()
 
-        # Starte Thread zum Lesen serieller Daten
         self.read_thread = threading.Thread(target=self.read_serial, daemon=True)
         self.read_thread.start()
 
@@ -133,22 +146,22 @@ class ArduinoGUI:
         spannung = float(val)
         self.spannung_label.config(text=f"{spannung:.2f} V")
         self.serial_conn.write(f"U:{spannung:.5f}\n".encode())
-        print(f"sendingU; {spannung:.2f}")
+        logging.info(f"sendingU; {spannung:.2f}")
         
     def send_drehzahl(self, val):
         drehzahl = int(float(val))
         self.drehzahl_label.config(text=f"{drehzahl} rpm")
         self.serial_conn.write(f"N:{drehzahl}\n".encode())
-        print(f"sendingN:{drehzahl}")
+        logging.info(f"sendingN:{drehzahl}")
         
     def send_Kp(self):
         kp = float(self.entry_kp.get())
         self.serial_conn.write(f"Kp:{kp:.4f}\n".encode())
-        print(f"sendingKp:{kp}")
+        logging.info(f"sendingKp:{kp}")
     def send_Ki(self):
         ki = float(self.entry_ki.get())
         self.serial_conn.write(f"Ki:{ki:.4f}\n".encode())
-        print(f"sendingKi:{ki}")
+        logging.info(f"sendingKi:{ki}")
 
 
     def toggle_disable(self):
@@ -162,17 +175,17 @@ class ArduinoGUI:
             try:
                 line = self.serial_conn.readline().decode().strip()
                 if not line: 
-                    print("serial gives nothing")
+                    logging.info("serial gives nothing")
                     continue
                 if len(line) < 2 or line[0] != "<" or line[-1] != ">":
-                    print(f"bad arduino signals: {repr(line)=}")
+                    logging.info(f"bad arduino signals: {repr(line)=}")
                     continue
                 
                 parts = line[1:-1].split(",")
                 if not len(parts) == 7: 
-                    print("serial reading not giving 7 values")
+                    logging.info("serial reading not giving 7 values")
                     continue 
-                print(f"line: {repr(line)}")
+                logging.info(f"line: {repr(line)}")
                 drehzahlIst, drehzahlSoll, drehmomentIst, ZWKspannungIst, MotorspannungSoll, PWM, Ankerstrom = parts
 
                 self.labels[0].config(text=drehzahlIst)
