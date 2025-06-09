@@ -22,6 +22,9 @@ float MotorSpannungSollV;
 bool MotorMode = 0;   // 1: geregelt, 0: manuell über Spannung
 int DrehZahlSollRPM = 0;
 float PWM;
+int frequenz = 2000;
+int duty_time;
+
 
 float ReglerKp = 0;
 float ReglerKi = 0;
@@ -29,15 +32,14 @@ float ReglerKi = 0;
 float dN = 0;
 float dNsum = 0;
 
-float u;
-
 
 void setup_PWM(){
   pinMode(pwm1Pin, OUTPUT);
   pinMode(pwm2Pin, OUTPUT);
 
   // PWM-Frequenz: 20kHz
-  ICR1 = 799;  // 16 MHz / (799 + 1) = 20 kHz
+  duty_time = 16000000/frequenz;  // 16 MHz / (799 + 1) = 2 kHz
+  ICR1 = duty_time-1;
 
   // Duty Cycle 
   OCR1A = 0;
@@ -53,7 +55,8 @@ void setMotorVoltage(float sollSpannung){
   // PWM aus Sollmotorspannung und istZwischenkreisfrequenz mit PWM begrenzung auf 90% wegen dem Bootstrap vorm Gatetreiber
   float MaxPWM = 0.9;
   MotorSpannungSollV = sollSpannung;
-  PWM = abs(MotorSpannungSollV)/ZwischenkreisSpannungIst;
+  // PWM = abs(MotorSpannungSollV)/ZwischenkreisSpannungIst;
+  PWM = MotorSpannungSollV/30.0;
 
   if (PWM > MaxPWM || PWM < -MaxPWM){
     PWM = max(min(PWM, MaxPWM), -MaxPWM);
@@ -61,13 +64,13 @@ void setMotorVoltage(float sollSpannung){
   
   if (PWM > 0){
     // MOSFETs: LowA = PWM, LowB=0 => HighB=1   
-    OCR1A = (int) (PWM * 800.0);
-    OCR1B = 0;
+    OCR1A = (int) (PWM * duty_time);
+    OCR1B = duty_time;
 
   } else if (PWM < 0){
     // MOSFETs: LowB = PWM, LowA=0 => HighA=1   
-    OCR1A = 0;
-    OCR1B = (int) (-PWM * 800.0);
+    OCR1A = duty_time;
+    OCR1B = (int) (-PWM * duty_time);
   } else {
     OCR1A = 0;
     OCR1B = 0;
@@ -81,7 +84,7 @@ void controlMotorSpeed(){
   dNsum += dN * abtastPeriode/1000.0;
 
   double U = dN*ReglerKp + dNsum*ReglerKi;
-  setMotorVoltage(min(max(U, 30.0), -30.0));
+  setMotorVoltage(min(max(U, -30.0), 30.0));
 
   if (U > 30.0 || U < -30.0){
     dNsum -= dN * abtastPeriode/1000.0;
