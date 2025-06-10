@@ -35,7 +35,7 @@ class ArduinoGUI:
         self.root = root
         root.title("Arduino Steuerung & Anzeige")
 
-        self.serial_conn = serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=1) 
+        self.serial_conn = None#serial.Serial(SERIAL_PORT, BAUD_RATE, timeout=1) 
         
         control_frame = ttk.LabelFrame(root, text="Ausgangssteuerung", padding=10)
         control_frame.grid(row=0, column=1, padx=10, pady=10, sticky="nsew")
@@ -63,25 +63,30 @@ class ArduinoGUI:
         self.drehzahl_label = ttk.Label(control_frame, text="0.00 rpm")
         self.drehzahl_label.grid(row=3, column=1, sticky="w")
 
-        
-        # Disable Button
-        self.disable_state = True
-        self.disable_button = ttk.Button(control_frame, text="Disable: ON", command=self.toggle_disable)
-        self.disable_button.grid(row=4, column=0, columnspan=1, pady=(15, 0))
 
-        # Kp Eingabe
-        tk.Label(control_frame, text="Kp:").grid(row=4, column=1)
-        self.entry_kp = tk.Entry(control_frame, width=8)
-        self.entry_kp.grid(row=4, column=2)
-        btn_kp = tk.Button(control_frame, text="Senden", command=self.send_Kp)
-        btn_kp.grid(row=4, column=3)
+        # NKp Eingabe
+        tk.Label(control_frame, text="NKp:").grid(row=4, column=0)
+        self.entry_nkp = tk.Entry(control_frame, width=8)
+        self.entry_nkp.grid(row=4, column=1)
+        tk.Button(control_frame, text="Senden", command=self.send_NKp).grid(row=4, column=2)
         
-        # Ki Eingabe
-        tk.Label(control_frame, text="Ki:").grid(row=5, column=1, padx=10, pady=5)
-        self.entry_ki = tk.Entry(control_frame, width=8)
-        self.entry_ki.grid(row=5, column=2, padx=10, pady=5)
-        btn_ki = tk.Button(control_frame, text="Senden", command=self.send_Ki)
-        btn_ki.grid(row=5, column=3, padx=10, pady=5)
+        # NKi Eingabe
+        tk.Label(control_frame, text="NKi:").grid(row=4, column=3)
+        self.entry_nki = tk.Entry(control_frame, width=8)
+        self.entry_nki.grid(row=4, column=4)
+        tk.Button(control_frame, text="Senden", command=self.send_NKi).grid(row=4, column=5)
+        
+        # IKp Eingabe
+        tk.Label(control_frame, text="IKp:").grid(row=5, column=0)
+        self.entry_ikp = tk.Entry(control_frame, width=8)
+        self.entry_ikp.grid(row=5, column=1)
+        tk.Button(control_frame, text="Senden", command=self.send_IKp).grid(row=5, column=2)
+        
+        # IKi Eingabe
+        tk.Label(control_frame, text="IKi:").grid(row=5, column=3)
+        self.entry_iki = tk.Entry(control_frame, width=8)
+        self.entry_iki.grid(row=5, column=4)
+        tk.Button(control_frame, text="Senden", command=self.send_IKi).grid(row=5, column=5)
         
         # Sensorwerte-Rahmen
         sensor_frame = ttk.LabelFrame(root, text="Sensorwerte", padding=10)
@@ -155,14 +160,22 @@ class ArduinoGUI:
         self.serial_conn.write(f"N:{drehzahl}\n".encode())
         logging.info(f"sendingN:{drehzahl}")
         
-    def send_Kp(self):
-        kp = float(self.entry_kp.get())
-        self.serial_conn.write(f"Kp:{kp:.4f}\n".encode())
-        logging.info(f"sendingKp:{kp}")
-    def send_Ki(self):
-        ki = float(self.entry_ki.get())
-        self.serial_conn.write(f"Ki:{ki:.4f}\n".encode())
-        logging.info(f"sendingKi:{ki}")
+    def send_NKp(self):
+        kp = float(self.entry_nkp.get())
+        self.serial_conn.write(f"NKp:{kp:.4f}\n".encode())
+        logging.info(f"sendingNKp:{kp}")
+    def send_NKi(self):
+        ki = float(self.entry_nki.get())
+        self.serial_conn.write(f"NKi:{ki:.4f}\n".encode())
+        logging.info(f"sendingNKi:{ki}")
+    def send_IKp(self):
+        kp = float(self.entry_ikp.get())
+        self.serial_conn.write(f"IKp:{kp:.4f}\n".encode())
+        logging.info(f"sendingIKp:{kp}")
+    def send_IKi(self):
+        ki = float(self.entry_iki.get())
+        self.serial_conn.write(f"IKi:{ki:.4f}\n".encode())
+        logging.info(f"sendingIKi:{ki}")
 
 
     def toggle_disable(self):

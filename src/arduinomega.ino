@@ -1,28 +1,16 @@
 #include <Arduino.h>
 
-
-
-// A0 imessung, A1:Umessung A2torque, D18rpm,
-//  D0-3 
-//  D4 Enable
-
-
-
-
 const int drehzahlPin = 18;
-// const int drehmomentPin = A0; //ignore
+const int drehmomentPin = A2; //to implement
 const int spannungPin = A1; 
 const int stromPin = A0;
 
-// const int pwm1Pin = 11;           // PWM-Ausgang A-Side (OC1A)
-// const int pwm2Pin = 12;           // PWM-Ausgang B-Side (OC1B)
-// const int disablePin = 7;
+const int pinHighA = 7; 
+const int pinLowA  = 9;  
+const int pinHighB = 8; 
+const int pinLowB  = 10;
 
-const int pinHighA = 7;  // PWM-Ausgang!
-const int pinLowA  = 9;  // bleibt LOW
-const int pinHighB = 8;  // LOW
-const int pinLowB  = 10;  // HIGH
-const int pinEnable = 11; // dauerhaft HIGH
+const int pinEnable = 11; 
 
 long DrehZahlIstRPM;
 float DrehmomentIst;
@@ -39,45 +27,19 @@ float PWM;
 int frequenz = 2000;
 int duty_time;
 
-
-float ReglerKp = 0;
-float ReglerKi = 0;
+float NReglerKp = 0;
+float NReglerKi = 0;
+float IReglerKp = 0;
+float IReglerKi = 0;
 
 float dN = 0;
 float dNsum = 0;
 
+float dI = 0;
+float dIsum = 0;
 
-void setup_PWM(){
-  pinMode(pinHighA, OUTPUT);
-  pinMode(pinLowA, OUTPUT);
-  pinMode(pinHighB, OUTPUT);
-  pinMode(pinLowB, OUTPUT);
-  pinMode(pinEnable, OUTPUT);
+float cephi = 1.0;
 
-  digitalWrite(pinEnable, HIGH);
-  digitalWrite(pinHighA, LOW);
-  digitalWrite(pinLowA, HIGH);
-  digitalWrite(pinHighB, LOW);
-  digitalWrite(pinLowB, HIGH);
-  delay(5);  // 5 ms Bootstrap-Vorladen
-  digitalWrite(pinLowA, LOW);
-  digitalWrite(pinLowB, LOW);
-
-
-  // pinMode(pwm1Pin, OUTPUT);
-  // pinMode(pwm2Pin, OUTPUT);
-
-  // // PWM-Frequenz: 20kHz
-  // duty_time = 16000000/frequenz;  // 16 MHz / (799 + 1) = 2 kHz
-  // ICR1 = duty_time-1;
-
-  // // Duty Cycle 
-  // OCR1A = 0;
-  // OCR1B = 0;
-
-  // TCCR1A = _BV(COM1A1) | _BV(COM1B1) | _BV(WGM11);
-  // TCCR1B = _BV(WGM13) | _BV(WGM12) | _BV(CS10);
-} 
 
 void setMotorVoltage(float sollSpannung){
   // U zwischen -30V und +30V. Dazwischen PWM
@@ -121,16 +83,29 @@ void setMotorVoltage(float sollSpannung){
   }
 }
 
+void controlMotorAmp(float sollStrom){
+
+  dI = sollStrom-AnkerStromIst;
+  dIsum += dI * abtastPeriode/1000.0;
+
+  double U = dI*IReglerKp + dIsum*IReglerKi;
+  setMotorVoltage(min(max(U, -30.0), 30.0));
+
+  if (U > 30.0 || U < -30.0){
+    dIsum -= dI * abtastPeriode/1000.0;
+  }
+}
+
 void controlMotorSpeed(){
-  // TODO: Regelung mit ist-Strom implememtieren
   // U = (Nsoll-Nist)(Kp+Ki/s)+cw*Nist aber cw unbekannt, regelt er das vllt selber aus?
   double dN = DrehZahlSollRPM-DrehZahlIstRPM;
   dNsum += dN * abtastPeriode/1000.0;
 
-  double U = dN*ReglerKp + dNsum*ReglerKi;
-  setMotorVoltage(min(max(U, -30.0), 30.0));
+  double I = (dN*NReglerKp + dNsum*NReglerKi) * cephi;
 
-  if (U > 30.0 || U < -30.0){
+  controlMotorAmp(min(max(I, -4.0), 4.0));
+
+  if (I > 4.0 || I < -4.0){
     dNsum -= dN * abtastPeriode/1000.0;
   }
   
@@ -143,16 +118,28 @@ void countPulse() {
 void setup() {
   Serial.begin(115200);
 
+  pinMode(pinHighA, OUTPUT);
+  pinMode(pinLowA, OUTPUT);
+  pinMode(pinHighB, OUTPUT);
+  pinMode(pinLowB, OUTPUT);
+  pinMode(pinEnable, OUTPUT);
+
   pinMode(drehzahlPin, INPUT);
-  // pinMode(drehmomentPin, INPUT);
+  pinMode(drehmomentPin, INPUT);
   pinMode(spannungPin, INPUT);
   pinMode(stromPin, INPUT);
 
-  attachInterrupt(digitalPinToInterrupt(drehzahlPin), countPulse, RISING);
-  // pinMode(disablePin, OUTPUT);
-  // digitalWrite(disablePin, true); //disable den GateTreiber beim initialisieren
+  // Bootstrap vorladen
+  digitalWrite(pinEnable, HIGH);
+  digitalWrite(pinHighA, LOW);
+  digitalWrite(pinLowA, HIGH);
+  digitalWrite(pinHighB, LOW);
+  digitalWrite(pinLowB, HIGH);
+  delay(5);  // 5 ms Bootstrap-Vorladen
+  digitalWrite(pinLowA, LOW);
+  digitalWrite(pinLowB, LOW);
 
-  setup_PWM();
+  attachInterrupt(digitalPinToInterrupt(drehzahlPin), countPulse, RISING);
 }
 
 void loop() {
@@ -161,8 +148,7 @@ void loop() {
   delay(abtastPeriode);
 
   DrehZahlIstRPM = (pulseCount * 60UL*1000) / (720UL * abtastPeriode);
-  if (DrehZahlIstRPM < 100)
-  {
+  if (DrehZahlIstRPM < 100){    // Drehzahlmessung gibt unsinnige Werte zwischen 0 un 100, wenn N=0
     DrehZahlIstRPM = 0;
   }
   
@@ -170,17 +156,13 @@ void loop() {
   // Sensor: 5V entspricht 1Nm
   DrehmomentIst = 0;//analogRead(drehmomentPin) * 5.0/1023.0 * 1.0/5.0;
 
-  //Spannungsteiler mit 27k und 5k: 30V werden zu 4,6V
+  //Spannungsteiler 
   ZwischenkreisSpannungIst = analogRead(spannungPin) * 5.0/1023.0 * 30.0/5.0; 
 
-  // float shunt_widerstand = 0.020;
-  // float verstaerkung = 20.0;
-  // float strom = analogRead(stromPin) * (5.0 / 1023.0);
-  // AnkerStromIst = (strom-2.5)/verstaerkung/shunt_widerstand;
-
+  // Strommessung
   float voltage = (analogRead(stromPin) / 1023.0) * 5.0;
-  AnkerStromIst = 0.9*AnkerStromIst + 0.1*((voltage - 2.5) / (3 * 0.1) * 0.9);  // Strom in Ampere
-
+  float stromAktuell = (voltage - 2.5) / (3 * 0.1) * 0.9;
+  AnkerStromIst = 0.05*AnkerStromIst + 0.05*stromAktuell; // Filter
 
   // Daten senden: "DrehZahlIstRPM, DrehZahlSollRPM, DrehmomentIst,ZwischenkreisSpannungIst, MotorspannungSoll, PWM, AnkerStromIst"
   Serial.print("<");
@@ -200,10 +182,9 @@ void loop() {
   Serial.println(">");
 
   if (MotorMode == 1){
-    controlMotorSpeed();
-  }
+    controlMotorSpeed(); // 1: geregelt, 0: manuell über Spannung
+  } 
 
-  
 
   while (Serial.available()) {
     String input = Serial.readStringUntil('\n');
@@ -218,21 +199,29 @@ void loop() {
       int motor_N = input.substring(2).toInt();
       DrehZahlSollRPM = motor_N;
 
-    }  else if (input.startsWith("Kp:")) {
-      double Kp = input.substring(3).toDouble();
+    }  else if (input.startsWith("NKp:")) {
+      double Kp = input.substring(4).toDouble();
       if (Kp > 0 && Kp < 10){
-        ReglerKp = Kp;
+        NReglerKp = Kp;
       }
 
-    }  else if (input.startsWith("Ki:")) {
-      double Ki = input.substring(3).toDouble();
+    }  else if (input.startsWith("NKi:")) {
+      double Ki = input.substring(4).toDouble();
       if (Ki > 0 && Ki < 10){
-        ReglerKi = Ki;
+        NReglerKi = Ki;
       }
 
-    } else if (input.startsWith("DISABLE:")) {
-      int state = input.substring(8).toInt();
-      // digitalWrite(disablePin, state);
-    }
+    }  else if (input.startsWith("IKp:")) {
+      double Kp = input.substring(4).toDouble();
+      if (Kp > 0 && Kp < 10){
+        IReglerKp = Kp;
+      }
+
+    }  else if (input.startsWith("IKi:")) {
+      double Ki = input.substring(4).toDouble();
+      if (Ki > 0 && Ki < 10){
+        IReglerKi = Ki;
+      }
+
   }
 }
