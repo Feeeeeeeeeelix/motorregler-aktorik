@@ -9,14 +9,20 @@
 
 
 
-const int drehzahlPin = 2;
-const int drehmomentPin = A0;
+const int drehzahlPin = 18;
+// const int drehmomentPin = A0; //ignore
 const int spannungPin = A1; 
-const int stromPin = A2;
+const int stromPin = A0;
 
-const int pwm1Pin = 11;           // PWM-Ausgang A-Side (OC1A)
-const int pwm2Pin = 12;           // PWM-Ausgang B-Side (OC1B)
-const int disablePin = 7;
+// const int pwm1Pin = 11;           // PWM-Ausgang A-Side (OC1A)
+// const int pwm2Pin = 12;           // PWM-Ausgang B-Side (OC1B)
+// const int disablePin = 7;
+
+const int pinHighA = 7;  // PWM-Ausgang!
+const int pinLowA  = 9;  // bleibt LOW
+const int pinHighB = 8;  // LOW
+const int pinLowB  = 10;  // HIGH
+const int pinEnable = 11; // dauerhaft HIGH
 
 long DrehZahlIstRPM;
 float DrehmomentIst;
@@ -42,19 +48,35 @@ float dNsum = 0;
 
 
 void setup_PWM(){
-  pinMode(pwm1Pin, OUTPUT);
-  pinMode(pwm2Pin, OUTPUT);
+  pinMode(pinHighA, OUTPUT);
+  pinMode(pinLowA, OUTPUT);
+  pinMode(pinHighB, OUTPUT);
+  pinMode(pinLowB, OUTPUT);
+  pinMode(pinEnable, OUTPUT);
 
-  // PWM-Frequenz: 20kHz
-  duty_time = 16000000/frequenz;  // 16 MHz / (799 + 1) = 2 kHz
-  ICR1 = duty_time-1;
+  digitalWrite(pinEnable, HIGH);
+  digitalWrite(pinHighA, LOW);
+  digitalWrite(pinLowA, HIGH);
+  digitalWrite(pinHighB, LOW);
+  digitalWrite(pinLowB, HIGH);
+  delay(5);  // 5 ms Bootstrap-Vorladen
+  digitalWrite(pinLowA, LOW);
+  digitalWrite(pinLowB, LOW);
 
-  // Duty Cycle 
-  OCR1A = 0;
-  OCR1B = 0;
 
-  TCCR1A = _BV(COM1A1) | _BV(COM1B1) | _BV(WGM11);
-  TCCR1B = _BV(WGM13) | _BV(WGM12) | _BV(CS10);
+  // pinMode(pwm1Pin, OUTPUT);
+  // pinMode(pwm2Pin, OUTPUT);
+
+  // // PWM-Frequenz: 20kHz
+  // duty_time = 16000000/frequenz;  // 16 MHz / (799 + 1) = 2 kHz
+  // ICR1 = duty_time-1;
+
+  // // Duty Cycle 
+  // OCR1A = 0;
+  // OCR1B = 0;
+
+  // TCCR1A = _BV(COM1A1) | _BV(COM1B1) | _BV(WGM11);
+  // TCCR1B = _BV(WGM13) | _BV(WGM12) | _BV(CS10);
 } 
 
 void setMotorVoltage(float sollSpannung){
@@ -72,16 +94,30 @@ void setMotorVoltage(float sollSpannung){
   
   if (PWM > 0){
     // MOSFETs: LowA = PWM, LowB=0 => HighB=1   
-    OCR1A = (int) (PWM * duty_time);
-    OCR1B = duty_time;
-
+    // OCR1A = (int) (PWM * duty_time);
+    // OCR1B = duty_time;
+    digitalWrite(pinEnable, HIGH);
+    digitalWrite(pinHighB, LOW);
+    digitalWrite(pinLowB, HIGH);
+    digitalWrite(pinLowA, LOW);
+    analogWrite(pinHighA, (int)(PWM*256));
+    
   } else if (PWM < 0){
     // MOSFETs: LowB = PWM, LowA=0 => HighA=1   
-    OCR1A = duty_time;
-    OCR1B = (int) (-PWM * duty_time);
+    // OCR1A = duty_time;
+    // OCR1B = (int) (-PWM * duty_time);
+    digitalWrite(pinEnable, HIGH);
+    digitalWrite(pinHighA, LOW);
+    digitalWrite(pinLowA, HIGH);
+    digitalWrite(pinLowB, LOW);
+    analogWrite(pinHighB, (int)(-PWM*256));
   } else {
-    OCR1A = duty_time;
-    OCR1B = duty_time;
+    // OCR1A = duty_time;    
+    digitalWrite(pinEnable, LOW);
+    digitalWrite(pinHighB, LOW);
+    digitalWrite(pinLowB, LOW);
+    digitalWrite(pinLowA, LOW);
+    analogWrite(pinHighA, LOW);
   }
 }
 
@@ -108,13 +144,13 @@ void setup() {
   Serial.begin(115200);
 
   pinMode(drehzahlPin, INPUT);
-  pinMode(drehmomentPin, INPUT);
+  // pinMode(drehmomentPin, INPUT);
   pinMode(spannungPin, INPUT);
   pinMode(stromPin, INPUT);
 
   attachInterrupt(digitalPinToInterrupt(drehzahlPin), countPulse, RISING);
-  pinMode(disablePin, OUTPUT);
-  digitalWrite(disablePin, true); //disable den GateTreiber beim initialisieren
+  // pinMode(disablePin, OUTPUT);
+  // digitalWrite(disablePin, true); //disable den GateTreiber beim initialisieren
 
   setup_PWM();
 }
@@ -125,17 +161,26 @@ void loop() {
   delay(abtastPeriode);
 
   DrehZahlIstRPM = (pulseCount * 60UL*1000) / (720UL * abtastPeriode);
+  if (DrehZahlIstRPM < 100)
+  {
+    DrehZahlIstRPM = 0;
+  }
+  
 
   // Sensor: 5V entspricht 1Nm
-  DrehmomentIst = analogRead(drehmomentPin) * 5.0/1023.0 * 1.0/5.0;
+  DrehmomentIst = 0;//analogRead(drehmomentPin) * 5.0/1023.0 * 1.0/5.0;
 
   //Spannungsteiler mit 27k und 5k: 30V werden zu 4,6V
-  ZwischenkreisSpannungIst = analogRead(spannungPin) * 5.0/1023.0 * 32.0/5.0; 
+  ZwischenkreisSpannungIst = analogRead(spannungPin) * 5.0/1023.0 * 30.0/5.0; 
 
-  float shunt_widerstand = 0.020;
-  float verstaerkung = 20.0;
-  float strom = analogRead(stromPin) * (5.0 / 1023.0);
-  AnkerStromIst = (strom-2.5)/verstaerkung/shunt_widerstand;
+  // float shunt_widerstand = 0.020;
+  // float verstaerkung = 20.0;
+  // float strom = analogRead(stromPin) * (5.0 / 1023.0);
+  // AnkerStromIst = (strom-2.5)/verstaerkung/shunt_widerstand;
+
+  float voltage = (analogRead(stromPin) / 1023.0) * 5.0;
+  AnkerStromIst = 0.9*AnkerStromIst + 0.1*((voltage - 2.5) / (3 * 0.1) * 0.9);  // Strom in Ampere
+
 
   // Daten senden: "DrehZahlIstRPM, DrehZahlSollRPM, DrehmomentIst,ZwischenkreisSpannungIst, MotorspannungSoll, PWM, AnkerStromIst"
   Serial.print("<");
@@ -187,7 +232,7 @@ void loop() {
 
     } else if (input.startsWith("DISABLE:")) {
       int state = input.substring(8).toInt();
-      digitalWrite(disablePin, state);
+      // digitalWrite(disablePin, state);
     }
   }
 }

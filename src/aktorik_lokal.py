@@ -120,7 +120,7 @@ class ArduinoGUI:
         series_counter = 0
         for i, ax in enumerate(self.axes.flatten()):
             ax.set_xlim(0, 100)
-            y_limit = [(0,1000), (0,1), (-1,32), (-6,6)][i]
+            y_limit = [(0,1000), (0,1), (-1,32), (-1,1)][i]
             ax.set_ylim(*y_limit)
             ax.set_title(self.DIAGRAMME[i])
             ax.set_xlabel("Zeit (t)")
@@ -147,6 +147,7 @@ class ArduinoGUI:
         self.spannung_label.config(text=f"{spannung:.2f} V")
         self.serial_conn.write(f"U:{spannung:.5f}\n".encode())
         logging.info(f"sendingU; {spannung:.2f}")
+        print(f"sendingU; {spannung:.2f}")
         
     def send_drehzahl(self, val):
         drehzahl = int(float(val))
