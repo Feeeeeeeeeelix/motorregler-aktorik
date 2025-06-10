@@ -9,7 +9,7 @@ import logging
 from datetime import datetime
 import os
 
-SERIAL_PORT = '/dev/cu.usbmodem11401'
+SERIAL_PORT = '/dev/cu.usbmodem1301'
 BAUD_RATE = 115200
 
 

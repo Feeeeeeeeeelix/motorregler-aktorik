@@ -1,6 +1,14 @@
 #include <Arduino.h>
 
 
+
+// A0 imessung, A1:Umessung A2torque, D18rpm,
+//  D0-3 
+//  D4 Enable
+
+
+
+
 const int drehzahlPin = 2;
 const int drehmomentPin = A0;
 const int spannungPin = A1; 
@@ -72,8 +80,8 @@ void setMotorVoltage(float sollSpannung){
     OCR1A = duty_time;
     OCR1B = (int) (-PWM * duty_time);
   } else {
-    OCR1A = 0;
-    OCR1B = 0;
+    OCR1A = duty_time;
+    OCR1B = duty_time;
   }
 }
 
