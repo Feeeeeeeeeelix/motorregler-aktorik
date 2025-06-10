@@ -26,6 +26,7 @@ int DrehZahlSollRPM = 0;
 float PWM;
 int frequenz = 2000;
 int duty_time;
+float MaxPWM = 0.9;
 
 float NReglerKp = 0;
 float NReglerKi = 0;
@@ -45,36 +46,27 @@ void setMotorVoltage(float sollSpannung){
   // U zwischen -30V und +30V. Dazwischen PWM
 
   // PWM aus Sollmotorspannung und istZwischenkreisfrequenz mit PWM begrenzung auf 90% wegen dem Bootstrap vorm Gatetreiber
-  float MaxPWM = 0.9;
   MotorSpannungSollV = sollSpannung;
-  // PWM = abs(MotorSpannungSollV)/ZwischenkreisSpannungIst;
-  PWM = MotorSpannungSollV/30.0;
+  PWM = abs(MotorSpannungSollV)/ZwischenkreisSpannungIst;
+  // PWM = MotorSpannungSollV/30.0; // als test wenn keine 30V anliegen
 
   if (PWM > MaxPWM || PWM < -MaxPWM){
     PWM = max(min(PWM, MaxPWM), -MaxPWM);
   }
   
   if (PWM > 0){
-    // MOSFETs: LowA = PWM, LowB=0 => HighB=1   
-    // OCR1A = (int) (PWM * duty_time);
-    // OCR1B = duty_time;
     digitalWrite(pinEnable, HIGH);
     digitalWrite(pinHighB, LOW);
     digitalWrite(pinLowB, HIGH);
     digitalWrite(pinLowA, LOW);
     analogWrite(pinHighA, (int)(PWM*256));
-    
   } else if (PWM < 0){
-    // MOSFETs: LowB = PWM, LowA=0 => HighA=1   
-    // OCR1A = duty_time;
-    // OCR1B = (int) (-PWM * duty_time);
     digitalWrite(pinEnable, HIGH);
     digitalWrite(pinHighA, LOW);
     digitalWrite(pinLowA, HIGH);
     digitalWrite(pinLowB, LOW);
     analogWrite(pinHighB, (int)(-PWM*256));
   } else {
-    // OCR1A = duty_time;    
     digitalWrite(pinEnable, LOW);
     digitalWrite(pinHighB, LOW);
     digitalWrite(pinLowB, LOW);
@@ -84,7 +76,6 @@ void setMotorVoltage(float sollSpannung){
 }
 
 void controlMotorAmp(float sollStrom){
-
   dI = sollStrom-AnkerStromIst;
   dIsum += dI * abtastPeriode/1000.0;
 
@@ -97,18 +88,15 @@ void controlMotorAmp(float sollStrom){
 }
 
 void controlMotorSpeed(){
-  // U = (Nsoll-Nist)(Kp+Ki/s)+cw*Nist aber cw unbekannt, regelt er das vllt selber aus?
   double dN = DrehZahlSollRPM-DrehZahlIstRPM;
   dNsum += dN * abtastPeriode/1000.0;
 
   double I = (dN*NReglerKp + dNsum*NReglerKi) * cephi;
-
   controlMotorAmp(min(max(I, -4.0), 4.0));
 
-  if (I > 4.0 || I < -4.0){
+  if (I > 5.0 || I < -5.0){
     dNsum -= dN * abtastPeriode/1000.0;
   }
-  
 }
 
 void countPulse() {
@@ -152,7 +140,6 @@ void loop() {
     DrehZahlIstRPM = 0;
   }
   
-
   // Sensor: 5V entspricht 1Nm
   DrehmomentIst = 0;//analogRead(drehmomentPin) * 5.0/1023.0 * 1.0/5.0;
 
@@ -223,5 +210,6 @@ void loop() {
         IReglerKi = Ki;
       }
 
+    }
   }
 }
